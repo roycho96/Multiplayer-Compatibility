@@ -14,6 +14,7 @@ namespace Multiplayer.Compat
     public class BadHygiene
     {
         private static AccessTools.FieldRef<Designator, ThingDef> removePlumbingRemovalModeField;
+
         private static AccessTools.FieldRef<Designator, bool> placeFertilizerAddingField;
 
         public BadHygiene(ModContentPack mod)
@@ -40,6 +41,16 @@ namespace Multiplayer.Compat
                 removePlumbingRemovalModeField = AccessTools.FieldRefAccess<ThingDef>(type, "RemovalMode");
                 MP.RegisterSyncWorker<Designator>(SyncRemovePlumbingDesignator, type, shouldConstruct: true);
             }
+
+            // RegisterAll — activates all [SyncMethod]-decorated methods in DBH
+            LongEventHandler.ExecuteWhenFinished(() =>
+            {
+                var dbhAssembly = AccessTools.TypeByName("DubsBadHygiene.MapComponent_Hygiene")?.Assembly;
+                if (dbhAssembly != null)
+                    MP.RegisterAll(dbhAssembly);
+                else
+                    Log.Warning("[Multiplayer Compat] Could not find DubsBadHygiene assembly for RegisterAll");
+            });
         }
 
         private static void SyncRemovePlumbingDesignator(SyncWorker sync, ref Designator designator)
@@ -49,6 +60,7 @@ namespace Multiplayer.Compat
             else
                 removePlumbingRemovalModeField(designator) = sync.Read<ThingDef>();
         }
+
 
         private static void SyncFertilizerAreaDesignator(SyncWorker sync, ref Designator designator)
         {

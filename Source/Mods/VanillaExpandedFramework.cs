@@ -174,6 +174,40 @@ namespace Multiplayer.Compat
             var type = AccessTools.TypeByName("VEF.Genes.CompHumanHatcher");
             PatchingUtilities.PatchSystemRand(AccessTools.Method(type, "Hatch"));
             MpCompat.RegisterLambdaMethod(type, "CompGetGizmosExtra", 0).SetDebugOnly();
+
+            // VEF ButcherProducts postfix consumes Rand without push/pop, causing desyncs.
+            // The postfix is an async iterator, so we target the compiler-generated MoveNext.
+            var moveNextMethod = AccessTools.Method("VEF.Genes.VanillaExpandedFramework_Pawn_ButcherProducts_Patch/<Postfix>d__0:MoveNext");
+            if (moveNextMethod != null)
+            {
+                try
+                {
+                    PatchingUtilities.PatchPushPopRand(moveNextMethod);
+                }
+                catch
+                {
+                    Log.Warning("[Multiplayer Compat] Could not patch VEF ButcherProducts MoveNext for RNG, trying outer method");
+                    try
+                    {
+                        PatchingUtilities.PatchPushPopRand("VEF.Genes.VanillaExpandedFramework_Pawn_ButcherProducts_Patch:Postfix");
+                    }
+                    catch
+                    {
+                        Log.Warning("[Multiplayer Compat] Could not patch VEF ButcherProducts postfix for RNG");
+                    }
+                }
+            }
+            else
+            {
+                try
+                {
+                    PatchingUtilities.PatchPushPopRand("VEF.Genes.VanillaExpandedFramework_Pawn_ButcherProducts_Patch:Postfix");
+                }
+                catch
+                {
+                    Log.Warning("[Multiplayer Compat] Could not patch VEF ButcherProducts postfix for RNG");
+                }
+            }
         }
 
         private static void PatchExtraPregnancyApproaches()

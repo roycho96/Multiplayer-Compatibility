@@ -24,6 +24,8 @@ namespace Multiplayer.Compat
 
             MpCompatLoader.Load(content);
             harmony.PatchAll();
+
+            LongEventHandler.ExecuteWhenFinished(VanillaPatches.Apply);
         }
 
         static IEnumerable<ISyncMethod> RegisterLambdaMethod_Impl(Type parentType, string parentMethod, MethodType methodType, params int[] lambdaOrdinals)

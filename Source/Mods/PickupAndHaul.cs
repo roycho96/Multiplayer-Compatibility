@@ -19,6 +19,20 @@ namespace Multiplayer.Compat
             // Sorts the ListerHaulables list from UI, causes issues
             MpCompat.harmony.Patch(AccessTools.Method("PickUpAndHaul.WorkGiver_HaulToInventory:PotentialWorkThingsGlobal"),
                 transpiler: new HarmonyMethod(typeof(PickupAndHaul), nameof(Transpiler)));
+
+            // Desync-18: DropUnusedInventory_PostFix → CheckIfPawnShouldUnloadInventory
+            // calls JobMaker.MakeJob → GetNextJobID inside command execution
+            // (Reserve → EndCurrentJob → TryFindAndStartJob cascade).
+            // Rand and UniqueID consumption must be isolated.
+            PatchingUtilities.PatchPushPopRand("PickUpAndHaul.PawnUnloadChecker:CheckIfPawnShouldUnloadInventory");
+
+            // Desync-23: WorkGiver_HaulToInventory.JobOnThing calls
+            // StoreUtility.TryFindBestBetterStoreCellForWorker → Rand.Range
+            // inside command execution (set_Drafted → TryFindAndStartJob).
+            // When a different WorkGiver wins on each side, Rand consumption
+            // diverges (host 2 calls vs local 10 calls in observed traces).
+            PatchingUtilities.PatchPushPopRand("PickUpAndHaul.WorkGiver_HaulToInventory:JobOnThing");
+            PatchingUtilities.PatchPushPopRand("PickUpAndHaul.WorkGiver_HaulToInventory:HasJobOnThing");
         }
 
         private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instr)

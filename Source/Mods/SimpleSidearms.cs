@@ -22,6 +22,10 @@ namespace Multiplayer.Compat
         {
             MpCompatPatchLoader.LoadPatch(this);
 
+            // Desync-10/12 fix: TryGenerateSidearmFor consumes Rand during pawn generation
+            // (trader caravans, quest pawns) without isolation — wrap in PushPopRand.
+            PatchingUtilities.PatchPushPopRand("SimpleSidearms.rimworld.PawnSidearmsGenerator:TryGenerateSidearmFor");
+
             Type type;
 
             // Gizmo interactions
