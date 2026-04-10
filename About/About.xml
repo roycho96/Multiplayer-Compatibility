@@ -1,12 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
   <packageId>rwmt.MultiplayerCompatibility</packageId>
-  <name>Multiplayer Compatibility</name>
-  <author>RimWorld Multiplayer Team</author>
+  <name>Multiplayer Compatibility (roycho96 fork)</name>
+  <author>RimWorld Multiplayer Team (forked by roycho96)</author>
   <supportedVersions>
     <li>1.6</li>
   </supportedVersions>
-  <description>Miscellaneous patches to make Multiplayer work
+  <description>[FORK] Private fork of rwmt/Multiplayer-Compatibility with extra desync fixes for hanne's MP group.
+    Original: https://github.com/rwmt/Multiplayer-Compatibility (MIT License, see LICENSE)
+    This fork: https://github.com/roycho96/Multiplayer-Compatibility
+
+    Added on top of upstream:
+    - DBH RegisterAll + Designator_RemoveSewage sync worker (Dubs Bad Hygiene)
+    - VEF RNG isolation (PickUpAndHaul + PawnGenerator flows)
+    - KiiroRace compat: sync Apparel_PoisonBottle and Apparel_Stealth toggle lambdas
+    - Vanilla determinism patches (trace context + finalizers)
+
+    ⚠ Same packageId as upstream — do NOT subscribe to both. Unsubscribe from the original workshop Multiplayer Compatibility before enabling this fork.
+
+    Original description follows:
+
+    Miscellaneous patches to make Multiplayer work
     Mod Support:
     - [KV] RimFridge
     - [KV] Path Avoid
