@@ -53,6 +53,7 @@ namespace Multiplayer.Compat
             TryPatch("PatchGenLeavingsDoLeavingsFor", PatchGenLeavingsDoLeavingsFor);
             TryPatch("PatchDetermineNextJobPushPopRand", PatchDetermineNextJobPushPopRand);
             TryPatch("PatchDesignatorInstallNullGuard", PatchDesignatorInstallNullGuard);
+            TryPatch("PatchDesignatorCancelNullGuard",  PatchDesignatorCancelNullGuard);
         }
 
         /// <summary>
@@ -1438,6 +1439,173 @@ namespace Multiplayer.Compat
                 return false; // skip original to prevent one-sided NRE
             }
             return true; // proceed normally
+        }
+
+        /// <summary>
+        /// STEP 57 — Desync-57 mitigation: Designator_Cancel.DesignateSingleCell
+        /// produces asymmetric thing-list state when a Blueprint_Install that was
+        /// already destroyed on one peer is cancelled on the other. The cancel
+        /// command runs at a different tick offset and the target cell contains
+        /// nothing cancelable, so the cancel either NREs or destroys a different
+        /// entity, leaving the two peers with different thing counts and diverged
+        /// Rand streams.
+        ///
+        /// Mirrors STEP 20 Plan C (PatchDesignatorInstallNullGuard, lines 1405-1418):
+        /// register a Priority.Last prefix that fires only during synced command
+        /// execution (after MP's own prefix has serialized/sent the command) and
+        /// skips the designator cleanly when no cancelable blueprint exists at the
+        /// target cell.
+        ///
+        /// Also patches DesignateMultiCell via the same guard so that area-cancel
+        /// sweeps behave consistently when some cells have already been cleared.
+        /// </summary>
+        private static void PatchDesignatorCancelNullGuard()
+        {
+            var single = AccessTools.Method(typeof(Designator_Cancel), nameof(Designator_Cancel.DesignateSingleCell));
+            if (single == null)
+            {
+                Log.Warning("MPCompat :: Designator_Cancel.DesignateSingleCell not found — patch skipped");
+            }
+            else
+            {
+                MpCompat.harmony.Patch(single,
+                    prefix: new HarmonyMethod(typeof(VanillaPatches), nameof(DesignatorCancelSingleCellGuardPrefix))
+                    { priority = Priority.Last });
+                Log.Message("MPCompat :: Designator_Cancel.DesignateSingleCell — null-guard prefix installed (STEP 57)");
+            }
+
+            var multi = AccessTools.Method(typeof(Designator_Cancel), nameof(Designator_Cancel.DesignateMultiCell));
+            if (multi == null)
+            {
+                Log.Warning("MPCompat :: Designator_Cancel.DesignateMultiCell not found — patch skipped");
+            }
+            else
+            {
+                MpCompat.harmony.Patch(multi,
+                    prefix: new HarmonyMethod(typeof(VanillaPatches), nameof(DesignatorCancelMultiCellGuardPrefix))
+                    { priority = Priority.Last });
+                Log.Message("MPCompat :: Designator_Cancel.DesignateMultiCell — null-guard prefix installed (STEP 57)");
+            }
+        }
+
+        /// <summary>
+        /// Prefix for Designator_Cancel.DesignateSingleCell — skips execution
+        /// if there are no cancelable designations at the target cell, preventing
+        /// one-sided entity destruction that causes thing-count divergence
+        /// (Desync-57). Only active inside a synced MP command.
+        /// </summary>
+        private static bool DesignatorCancelSingleCellGuardPrefix(Designator_Cancel __instance, IntVec3 c)
+        {
+            if (!MP.IsInMultiplayer || !MP.IsExecutingSyncCommand)
+                return true; // single-player or interface mode: always proceed
+
+            Map map;
+            try { map = __instance.Map; }
+            catch { return true; } // if property throws, let original handle it
+
+            if (map == null)
+            {
+                Log.Warning("MPCompat :: Designator_Cancel.DesignateSingleCell skipped — Map is null");
+                return false;
+            }
+
+            // Check whether there is at least one Thing at the cell that the
+            // cancel designator accepts. Cell-level designations (zone wipes,
+            // etc.) carry no Thing and cannot cause asymmetric entity-count
+            // divergence, so we do not filter those — only Thing-targeted
+            // blueprints/frames can produce the off-by-N-things desync.
+            bool hasCancelable = false;
+            try
+            {
+                foreach (var t in map.thingGrid.ThingsAt(c))
+                {
+                    if (__instance.CanDesignateThing(t).Accepted)
+                    {
+                        hasCancelable = true;
+                        break;
+                    }
+                }
+                // Also accept if there are any cell-level designations at this
+                // position (those are harmless to let through — they can't
+                // create Thing count divergence, but blocking them would break
+                // zone-cancel commands).
+                if (!hasCancelable)
+                {
+                    foreach (var _ in map.designationManager.AllDesignationsAt(c))
+                    {
+                        hasCancelable = true;
+                        break;
+                    }
+                }
+            }
+            catch
+            {
+                return true; // on any iteration error, let original decide
+            }
+
+            if (!hasCancelable)
+            {
+                Log.Warning($"MPCompat :: Designator_Cancel.DesignateSingleCell skipped — no cancelable target at {c}");
+                return false;
+            }
+            return true;
+        }
+
+        // Helper: grab first Thing at a cell without LINQ allocation.
+        private static Thing ThingAt(Map map, IntVec3 c)
+        {
+            foreach (var t in map.thingGrid.ThingsAt(c))
+                return t;
+            return null;
+        }
+
+        /// <summary>
+        /// Prefix for Designator_Cancel.DesignateMultiCell — when executing a
+        /// synced command, filters the incoming cell list to only those that still
+        /// contain something cancelable on this peer. Replacing the enumerable in
+        /// a prefix is not straightforward (Harmony passes IEnumerable by value),
+        /// so we simply short-circuit to false and re-invoke the single-cell path
+        /// for each valid cell manually — exactly as vanilla's base class does.
+        /// </summary>
+        private static bool DesignatorCancelMultiCellGuardPrefix(Designator_Cancel __instance, IEnumerable<IntVec3> cells)
+        {
+            if (!MP.IsInMultiplayer || !MP.IsExecutingSyncCommand)
+                return true;
+
+            Map map;
+            try { map = __instance.Map; }
+            catch { return true; }
+
+            if (map == null)
+                return true;
+
+            // Replay only the cells that still have a cancelable target
+            // (Thing-targeted or cell-level designation). Cells with neither
+            // are silently dropped to prevent one-sided entity destruction.
+            try
+            {
+                foreach (var c in cells)
+                {
+                    bool hasCancelable = false;
+                    foreach (var t in map.thingGrid.ThingsAt(c))
+                    {
+                        if (__instance.CanDesignateThing(t).Accepted)
+                        { hasCancelable = true; break; }
+                    }
+                    if (!hasCancelable)
+                    {
+                        foreach (var _ in map.designationManager.AllDesignationsAt(c))
+                        { hasCancelable = true; break; }
+                    }
+                    if (hasCancelable)
+                        __instance.DesignateSingleCell(c);
+                }
+            }
+            catch
+            {
+                return true; // on any error fall back to vanilla
+            }
+            return false; // we handled it
         }
 
         /// <summary>
