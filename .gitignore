@@ -334,3 +334,5 @@ ASALocalRun/
 
 Multiplayer-Compatibility.zip
 /Multiplayer-Compatibility
+# Steam Workshop ID — workspace is source of truth, kept out of git history per REPORT STEP 38
+About/PublishedFileId.txt
