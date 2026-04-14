@@ -1115,17 +1115,24 @@ namespace Multiplayer.Compat
                 Log.Message("MPCompat :: Designator_Cancel.DesignateSingleCell — null-guard prefix installed (STEP 57)");
             }
 
-            var multi = AccessTools.Method(typeof(Designator_Cancel), nameof(Designator_Cancel.DesignateMultiCell));
+            // Designator_Cancel does NOT override DesignateMultiCell — it's
+            // inherited from Verse.Designator. Harmony refuses inherited
+            // MethodInfo ("You can only patch implemented methods/constructors.
+            // Patch the declared method ... instead."), so we patch the base
+            // declared method and filter by runtime instance type inside the
+            // prefix. Only Designator_Cancel instances get the guard applied;
+            // every other Designator passes through unmodified.
+            var multi = AccessTools.Method(typeof(Designator), nameof(Designator.DesignateMultiCell));
             if (multi == null)
             {
-                Log.Warning("MPCompat :: Designator_Cancel.DesignateMultiCell not found — patch skipped");
+                Log.Warning("MPCompat :: Verse.Designator.DesignateMultiCell not found — patch skipped");
             }
             else
             {
                 MpCompat.harmony.Patch(multi,
                     prefix: new HarmonyMethod(typeof(VanillaPatches), nameof(DesignatorCancelMultiCellGuardPrefix))
                     { priority = Priority.Last });
-                Log.Message("MPCompat :: Designator_Cancel.DesignateMultiCell — null-guard prefix installed (STEP 57)");
+                Log.Message("MPCompat :: Verse.Designator.DesignateMultiCell — null-guard prefix installed (STEP 57, scoped to Designator_Cancel via runtime type check)");
             }
         }
 
@@ -1208,13 +1215,20 @@ namespace Multiplayer.Compat
         /// so we simply short-circuit to false and re-invoke the single-cell path
         /// for each valid cell manually — exactly as vanilla's base class does.
         /// </summary>
-        private static bool DesignatorCancelMultiCellGuardPrefix(Designator_Cancel __instance, IEnumerable<IntVec3> cells)
+        private static bool DesignatorCancelMultiCellGuardPrefix(Designator __instance, IEnumerable<IntVec3> cells)
         {
+            // Base method is shared across all Designator subclasses — only
+            // apply the Desync-57 guard when the runtime instance is the
+            // Cancel variant (the one that exhibited the asymmetric
+            // Blueprint_Install destroy cascade). Everything else passes through.
+            if (!(__instance is Designator_Cancel cancel))
+                return true;
+
             if (!MP.IsInMultiplayer || !MP.IsExecutingSyncCommand)
                 return true;
 
             Map map;
-            try { map = __instance.Map; }
+            try { map = cancel.Map; }
             catch { return true; }
 
             if (map == null)
@@ -1230,7 +1244,7 @@ namespace Multiplayer.Compat
                     bool hasCancelable = false;
                     foreach (var t in map.thingGrid.ThingsAt(c))
                     {
-                        if (__instance.CanDesignateThing(t).Accepted)
+                        if (cancel.CanDesignateThing(t).Accepted)
                         { hasCancelable = true; break; }
                     }
                     if (!hasCancelable)
@@ -1239,7 +1253,7 @@ namespace Multiplayer.Compat
                         { hasCancelable = true; break; }
                     }
                     if (hasCancelable)
-                        __instance.DesignateSingleCell(c);
+                        cancel.DesignateSingleCell(c);
                 }
             }
             catch
