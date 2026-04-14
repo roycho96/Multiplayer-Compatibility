@@ -40,6 +40,18 @@ namespace Multiplayer.Compat
             LongEventHandler.ExecuteWhenFinished(LatePatch);
         }
 
-        public static void LatePatch() => PatchingUtilities.PatchSystemRand("VEE.RegularEvents.SpaceBattle:GameConditionTick", false);
+        public static void LatePatch()
+        {
+            // Upstream SpaceBattle patch — System.Random transpiler only (per upstream choice).
+            PatchingUtilities.PatchSystemRand("VEE.RegularEvents.SpaceBattle:GameConditionTick", false);
+
+            // Desync-61 fix: PsychicBloom.GameConditionTick consumes Verse.Rand
+            // via CellFinderLoose.RandomCellWith + GenCollection.RandomElement,
+            // outside MapPostTick seed-seal (WorldPostTick path). Needs
+            // Rand.PushState/PopState wrap (patchPushPop=true default) — plain
+            // System.Random transpiler as used for SpaceBattle does NOT isolate
+            // Verse.Rand calls.
+            PatchingUtilities.PatchSystemRand("VEE.PurpleEvents.PsychicBloom:GameConditionTick");
+        }
     }
 }
